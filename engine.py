@@ -3,6 +3,7 @@ from coder.coder import Coder
 from tester.tester import Tester
 from debugger.debugger import Debugger
 from reviewer.reviewer import Reviewer
+from docker.docker_manager import DockerManager
 
 from state.project_state import (
     load_state,
@@ -27,6 +28,8 @@ class AutonomousEngine:
 
         self.reviewer = Reviewer()
 
+        self.docker_manager = DockerManager()
+
         self.max_debug_attempts = (
             max_debug_attempts
         )
@@ -45,20 +48,17 @@ class AutonomousEngine:
             []
         )
 
-
         # No tasks means project is NOT complete
 
         if not tasks:
 
             return False
 
-
         for task in tasks:
 
             if task.get("status") != "completed":
 
                 return False
-
 
         return True
 
@@ -76,13 +76,11 @@ class AutonomousEngine:
             []
         )
 
-
         for task in tasks:
 
             if task.get("status") != "completed":
 
                 return task
-
 
         return None
 
@@ -98,7 +96,6 @@ class AutonomousEngine:
 
         task_id = task["id"]
 
-
         print("\n")
         print("==========================================")
         print(
@@ -106,11 +103,9 @@ class AutonomousEngine:
         )
         print("==========================================")
 
-
         print(
             task["description"]
         )
-
 
         # ======================================
         # Mark task in progress
@@ -121,18 +116,15 @@ class AutonomousEngine:
             "in_progress"
         )
 
-
         # ======================================
         # CODER
         # ======================================
 
         print("\n>>> AI CODER")
 
-
         coder_result = (
             self.coder.execute_task()
         )
-
 
         # ======================================
         # Coder failed
@@ -153,9 +145,7 @@ class AutonomousEngine:
 
             print("==========================================")
 
-
             return False
-
 
         # ======================================
         # Coder succeeded
@@ -166,18 +156,15 @@ class AutonomousEngine:
             "✅ CODER COMPLETED THE TASK"
         )
 
-
         # ======================================
         # TESTER
         # ======================================
 
         print("\n>>> TESTER")
 
-
         test_result = (
             self.tester.test_project()
         )
-
 
         # ======================================
         # Tests passed
@@ -190,20 +177,16 @@ class AutonomousEngine:
             print("TASK RESULT")
             print("==========================================")
 
-
             print(
                 "✅ TASK PASSED"
             )
-
 
             update_task_status(
                 task_id,
                 "completed"
             )
 
-
             return True
-
 
         # ======================================
         # Tests failed
@@ -218,11 +201,9 @@ class AutonomousEngine:
 
         print("==========================================")
 
-
         print(
             "Starting debugger..."
         )
-
 
         # ======================================
         # DEBUG LOOP
@@ -236,16 +217,13 @@ class AutonomousEngine:
             print("\n")
             print("------------------------------------------")
 
-
             print(
                 f"DEBUG ATTEMPT "
                 f"{attempt}/"
                 f"{self.max_debug_attempts}"
             )
 
-
             print("------------------------------------------")
-
 
             # ==================================
             # DEBUGGER
@@ -254,7 +232,6 @@ class AutonomousEngine:
             debug_result = (
                 self.debugger.debug()
             )
-
 
             if debug_result is None:
 
@@ -265,18 +242,15 @@ class AutonomousEngine:
 
                 continue
 
-
             # ==================================
             # TEST AGAIN
             # ==================================
 
             print("\n>>> TESTER")
 
-
             test_result = (
                 self.tester.test_project()
             )
-
 
             # ==================================
             # Fixed
@@ -289,25 +263,20 @@ class AutonomousEngine:
                 print("DEBUG RESULT")
                 print("==========================================")
 
-
                 print(
                     "✅ DEBUGGER FIXED THE TASK"
                 )
-
 
                 update_task_status(
                     task_id,
                     "completed"
                 )
 
-
                 return True
-
 
             print(
                 "❌ Tests still failing."
             )
-
 
         # ======================================
         # Debugging failed
@@ -322,6 +291,91 @@ class AutonomousEngine:
 
         print("==========================================")
 
+        return False
+
+
+    # ==========================================
+    # Deploy completed application
+    # ==========================================
+
+    def deploy_application(self):
+
+        print("\n")
+        print("==========================================")
+        print("AUTONOMOUS DOCKER DEPLOYMENT")
+        print("==========================================")
+
+        try:
+
+            result = (
+                self.docker_manager.deploy()
+            )
+
+        except Exception as e:
+
+            print("\n")
+            print("==========================================")
+            print("❌ DOCKER DEPLOYMENT ERROR")
+            print("==========================================")
+
+            print(
+                str(e)
+            )
+
+            return False
+
+        # ======================================
+        # Docker deployment successful
+        # ======================================
+
+        if result.get(
+            "success",
+            False
+        ):
+
+            print("\n")
+            print("==========================================")
+            print("✅ DOCKER DEPLOYMENT SUCCESSFUL")
+            print("==========================================")
+
+            print(
+                "Application has been:"
+            )
+
+            print(
+                "  ✅ Dockerfile generated/verified"
+            )
+
+            print(
+                "  ✅ Docker image built"
+            )
+
+            print(
+                "  ✅ Container started"
+            )
+
+            print(
+                "  ✅ Health check passed"
+            )
+
+            return True
+
+        # ======================================
+        # Docker deployment failed
+        # ======================================
+
+        print("\n")
+        print("==========================================")
+        print("❌ DOCKER DEPLOYMENT FAILED")
+        print("==========================================")
+
+        print(
+            "Failed stage:",
+            result.get(
+                "stage",
+                "unknown"
+            )
+        )
 
         return False
 
@@ -339,7 +393,6 @@ class AutonomousEngine:
         )
         print("==========================================")
 
-
         # ======================================
         # Main loop
         # ======================================
@@ -355,16 +408,13 @@ class AutonomousEngine:
                 .decide_next_action()
             )
 
-
             action = decision.get(
                 "action"
             )
 
-
             task = decision.get(
                 "task"
             )
-
 
             # ==================================
             # Project complete
@@ -389,9 +439,7 @@ class AutonomousEngine:
 
                     print("==========================================")
 
-
                     break
-
 
                 # ==================================
                 # Orchestrator incorrectly claimed
@@ -411,11 +459,9 @@ class AutonomousEngine:
 
                 print("==========================================")
 
-
                 incomplete_task = (
                     self.get_first_incomplete_task()
                 )
-
 
                 # ==================================
                 # No incomplete task found
@@ -429,18 +475,15 @@ class AutonomousEngine:
 
                     break
 
-
                 print("\n")
                 print(
                     "Continuing with incomplete task:"
                 )
 
-
                 print(
                     f"Task {incomplete_task['id']}: "
                     f"{incomplete_task['description']}"
                 )
-
 
                 # ==================================
                 # Execute incomplete task
@@ -451,7 +494,6 @@ class AutonomousEngine:
                         incomplete_task
                     )
                 )
-
 
                 if not success:
 
@@ -464,18 +506,14 @@ class AutonomousEngine:
 
                     print("==========================================")
 
-
                     print(
                         f"Task {incomplete_task['id']} "
                         "was not completed."
                     )
 
-
                     return
 
-
                 continue
-
 
             # ==================================
             # No task
@@ -492,7 +530,6 @@ class AutonomousEngine:
 
                 print("==========================================")
 
-
                 # ==================================
                 # Check actual state before stopping
                 # ==================================
@@ -505,11 +542,9 @@ class AutonomousEngine:
 
                     break
 
-
                 incomplete_task = (
                     self.get_first_incomplete_task()
                 )
-
 
                 if incomplete_task is not None:
 
@@ -522,13 +557,11 @@ class AutonomousEngine:
                         f"{incomplete_task['description']}"
                     )
 
-
                     success = (
                         self.execute_task(
                             incomplete_task
                         )
                     )
-
 
                     if not success:
 
@@ -537,19 +570,15 @@ class AutonomousEngine:
                             "AUTONOMOUS EXECUTION STOPPED"
                         )
 
-
                         return
 
-
                     continue
-
 
                 print(
                     "No task available."
                 )
 
                 break
-
 
             # ======================================
             # Execute task
@@ -560,7 +589,6 @@ class AutonomousEngine:
                     task
                 )
             )
-
 
             # ======================================
             # Task failed permanently
@@ -577,15 +605,12 @@ class AutonomousEngine:
 
                 print("==========================================")
 
-
                 print(
                     f"Task {task['id']} "
                     "was not completed."
                 )
 
-
                 return
-
 
         # ======================================
         # FINAL SAFETY CHECK
@@ -606,9 +631,7 @@ class AutonomousEngine:
 
             print("==========================================")
 
-
             return
-
 
         # ======================================
         # FINAL REVIEW
@@ -623,11 +646,9 @@ class AutonomousEngine:
 
         print("==========================================")
 
-
         review = (
             self.reviewer.review()
         )
-
 
         # ======================================
         # Review approved
@@ -639,16 +660,58 @@ class AutonomousEngine:
             print("==========================================")
 
             print(
-                "🎉 PROJECT COMPLETED"
+                "🎉 PROJECT REVIEW APPROVED"
             )
 
             print("==========================================")
-
 
             print(
                 review["reason"]
             )
 
+            # ==================================
+            # AUTONOMOUS DOCKER DEPLOYMENT
+            # ==================================
+
+            docker_success = (
+                self.deploy_application()
+            )
+
+            # ==================================
+            # Docker successful
+            # ==================================
+
+            if docker_success:
+
+                print("\n")
+                print("==========================================")
+                print("🎉 PROJECT COMPLETED")
+                print("==========================================")
+
+                print(
+                    "Application was successfully "
+                    "built, deployed, and "
+                    "health checked."
+                )
+
+                return
+
+            # ==================================
+            # Docker failed
+            # ==================================
+
+            print("\n")
+            print("==========================================")
+            print("❌ PROJECT DEPLOYMENT FAILED")
+            print("==========================================")
+
+            print(
+                "The application code passed "
+                "the final review, but Docker "
+                "deployment failed."
+            )
+
+            return
 
         # ======================================
         # Review rejected
@@ -665,7 +728,6 @@ class AutonomousEngine:
 
             print("==========================================")
 
-
             print(
                 review["reason"]
             )
@@ -680,6 +742,5 @@ if __name__ == "__main__":
     engine = AutonomousEngine(
         max_debug_attempts=3
     )
-
 
     engine.run()
