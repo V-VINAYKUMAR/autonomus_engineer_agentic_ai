@@ -16,7 +16,10 @@ class Tester:
 
         self.state = load_state()
 
-        self.workspace = Path("workspace")
+        # Use an absolute workspace path.
+        # This prevents workspace/workspace/.venv
+        # when subprocess cwd is already workspace.
+        self.workspace = Path("workspace").resolve()
 
         self.project_venv = (
             self.workspace / ".venv"
@@ -265,8 +268,11 @@ class Tester:
 
 
         # --------------------------------------
-        # Already installed
+        # Application dependencies
         # --------------------------------------
+
+        application_output = ""
+
 
         if (
             current_hash
@@ -279,85 +285,155 @@ class Tester:
                 "are already installed."
             )
 
-            return {
-                "passed": True,
-                "output": ""
-            }
+        else:
+
+            print("\n==============================")
+            print("PROJECT DEPENDENCIES")
+            print("==============================")
+
+            print(
+                "Installing project dependencies..."
+            )
+
+            pip = self.get_project_pip()
+
+            try:
+
+                result = subprocess.run(
+                    [
+                        str(pip),
+                        "install",
+                        "-r",
+                        "requirements.txt"
+                    ],
+                    capture_output=True,
+                    text=True,
+                    cwd=self.workspace
+                )
+
+                application_output = (
+                    result.stdout
+                    + "\n"
+                    + result.stderr
+                )
+
+                print(application_output)
+
+                if result.returncode != 0:
+
+                    print(
+                        "❌ Dependency installation failed."
+                    )
+
+                    return {
+                        "passed": False,
+                        "output": application_output
+                    }
+
+            except Exception as e:
+
+                error = (
+                    "Dependency installation error: "
+                    f"{e}"
+                )
+
+                print(error)
+
+                return {
+                    "passed": False,
+                    "output": error
+                }
 
 
-        # --------------------------------------
-        # Install dependencies
-        # --------------------------------------
+        # ======================================
+        # Install pytest
+        # ======================================
 
         print("\n==============================")
-        print("PROJECT DEPENDENCIES")
+        print("TEST DEPENDENCIES")
         print("==============================")
 
         print(
-            "Installing project dependencies..."
+            "Checking pytest..."
         )
 
         pip = self.get_project_pip()
 
         try:
 
-            result = subprocess.run(
+            pytest_check = subprocess.run(
                 [
-                    str(pip),
-                    "install",
-                    "-r",
-                    "requirements.txt"
+                    str(project_python),
+                    "-c",
+                    "import pytest"
                 ],
                 capture_output=True,
                 text=True,
                 cwd=self.workspace
             )
 
-            output = (
-                result.stdout
-                + "\n"
-                + result.stderr
-            )
 
-            print(output)
-
-            if result.returncode != 0:
+            if pytest_check.returncode == 0:
 
                 print(
-                    "❌ Dependency installation failed."
+                    "✅ Pytest is already installed."
                 )
 
-                return {
-                    "passed": False,
-                    "output": output
-                }
+                pytest_output = ""
 
+            else:
 
-            # ----------------------------------
-            # Save successful installation
-            # ----------------------------------
-
-            if current_hash:
-
-                self.save_requirements_hash(
-                    current_hash
+                print(
+                    "Pytest not found."
                 )
 
+                print(
+                    "Installing pytest..."
+                )
 
-            print(
-                "✅ Dependencies installed."
-            )
+                result = subprocess.run(
+                    [
+                        str(pip),
+                        "install",
+                        "pytest"
+                    ],
+                    capture_output=True,
+                    text=True,
+                    cwd=self.workspace
+                )
 
-            return {
-                "passed": True,
-                "output": output
-            }
+                pytest_output = (
+                    result.stdout
+                    + "\n"
+                    + result.stderr
+                )
+
+                print(pytest_output)
+
+                if result.returncode != 0:
+
+                    print(
+                        "❌ Failed to install pytest."
+                    )
+
+                    return {
+                        "passed": False,
+                        "output": (
+                            application_output
+                            + "\n"
+                            + pytest_output
+                        )
+                    }
+
+                print(
+                    "✅ Pytest installed."
+                )
 
 
         except Exception as e:
 
             error = (
-                "Dependency installation error: "
+                "Pytest installation error: "
                 f"{e}"
             )
 
@@ -367,6 +443,31 @@ class Tester:
                 "passed": False,
                 "output": error
             }
+
+
+        # --------------------------------------
+        # Save successful requirements hash
+        # --------------------------------------
+
+        if current_hash:
+
+            self.save_requirements_hash(
+                current_hash
+            )
+
+
+        print(
+            "\n✅ Dependencies ready."
+        )
+
+        return {
+            "passed": True,
+            "output": (
+                application_output
+                + "\n"
+                + pytest_output
+            )
+        }
 
 
     # ==========================================
