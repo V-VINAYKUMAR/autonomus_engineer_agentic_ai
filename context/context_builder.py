@@ -22,7 +22,10 @@ class ContextBuilder:
 
         self.refresh()
 
-        return self.state["project"]
+        return self.state.get(
+            "project",
+            {}
+        )
 
     # ==========================================
     # Get all tasks
@@ -32,7 +35,10 @@ class ContextBuilder:
 
         self.refresh()
 
-        return self.state["tasks"]
+        return self.state.get(
+            "tasks",
+            []
+        )
 
     # ==========================================
     # Get current task
@@ -42,16 +48,22 @@ class ContextBuilder:
 
         self.refresh()
 
-        current_task_id = self.state.get(
-            "current_task"
+        current_task_id = (
+            self.state.get(
+                "current_task"
+            )
         )
 
         if current_task_id is None:
             return None
 
-        for task in self.state["tasks"]:
+        for task in self.state.get(
+            "tasks",
+            []
+        ):
 
-            if task["id"] == current_task_id:
+            if task.get("id") == current_task_id:
+
                 return task
 
         return None
@@ -94,19 +106,28 @@ class ContextBuilder:
     # Read project file
     # ==========================================
 
-    def read_file(self, filename):
+    def read_file(
+        self,
+        filename
+    ):
 
-        return read_file(filename)
+        return read_file(
+            filename
+        )
 
     # ==========================================
-    # Build complete context
+    # Build COMPLETE context
+    #
+    # Used mainly for debugging/display.
+    # Do NOT use this directly for large
+    # Gemini prompts.
     # ==========================================
 
     def build(self):
 
         self.refresh()
 
-        context = {
+        return {
             "project": self.get_project(),
             "tasks": self.get_tasks(),
             "current_task": self.get_current_task(),
@@ -115,7 +136,65 @@ class ContextBuilder:
             "files": self.get_files()
         }
 
-        return context
+    # ==========================================
+    # Build SMALL CODER context
+    #
+    # This is the important new method.
+    # ==========================================
+
+    def build_coder_context(self):
+
+        self.refresh()
+
+        current_task = (
+            self.get_current_task()
+        )
+
+        # --------------------------------------
+        # Only include useful task information
+        # --------------------------------------
+
+        task_summary = []
+
+        for task in self.get_tasks():
+
+            task_summary.append({
+                "id": task.get("id"),
+                "status": task.get("status"),
+                "description": task.get(
+                    "description",
+                    ""
+                )
+            })
+
+        # --------------------------------------
+        # Only keep recent errors
+        #
+        # Don't send the entire error history.
+        # --------------------------------------
+
+        errors = self.get_errors()
+
+        recent_errors = errors[-2:] if errors else []
+
+        # --------------------------------------
+        # Project files are ONLY filenames here.
+        #
+        # File contents are NOT loaded.
+        # Gemini can request a specific file
+        # using read_file.
+        # --------------------------------------
+
+        files = self.get_files()
+
+        return {
+            "project": self.get_project(),
+            "current_task": current_task,
+            "tasks": task_summary,
+            "errors": recent_errors,
+            "attempts": self.get_attempts(),
+            "files": files
+        }
 
     # ==========================================
     # Display context
@@ -125,9 +204,17 @@ class ContextBuilder:
 
         context = self.build()
 
-        print("\n==============================")
-        print("PROJECT CONTEXT")
-        print("==============================")
+        print(
+            "\n=============================="
+        )
+
+        print(
+            "PROJECT CONTEXT"
+        )
+
+        print(
+            "=============================="
+        )
 
         print(
             "\nProject:",
