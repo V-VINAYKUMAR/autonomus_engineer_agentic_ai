@@ -2,6 +2,7 @@ import os
 import json
 import time
 import re
+
 from dotenv import load_dotenv
 from google import genai
 
@@ -15,6 +16,7 @@ from tools.file_tools import (
     create_file,
     modify_file
 )
+
 
 # ============================================================
 # ENVIRONMENT
@@ -88,7 +90,6 @@ class Coder:
 
             return None
 
-
         for task in self.state.get(
             "tasks",
             []
@@ -97,7 +98,6 @@ class Coder:
             if task["id"] == current_task_id:
 
                 return task
-
 
         return None
 
@@ -396,6 +396,38 @@ FILE: {filename}
 
 
     # ========================================================
+    # BUILD SMALL PROJECT FILE LIST
+    # ========================================================
+
+    def build_file_list_context(
+        self,
+        files
+    ):
+
+        if not files:
+
+            return "(no project files yet)"
+
+
+        # list_files() normally returns a list.
+        # Convert to a compact string rather than
+        # dumping a large Python object representation.
+
+        if isinstance(
+            files,
+            list
+        ):
+
+            return "\n".join(
+                str(filename)
+                for filename in files
+            )
+
+
+        return str(files)
+
+
+    # ========================================================
     # ASK GEMINI
     # ========================================================
 
@@ -425,23 +457,63 @@ FILE: {filename}
         )
 
 
+        # ----------------------------------------------------
+        # Project files
+        # ----------------------------------------------------
+
         files = (
             self.get_project_files()
         )
 
 
+        file_list = (
+            self.build_file_list_context(
+                files
+            )
+        )
+
+
         # ----------------------------------------------------
-        # IMPORTANT FIX
-        #
-        # Send ACTUAL FILE CONTENTS to Gemini.
-        #
-        # Previously we only sent filenames.
+        # Files already investigated
         # ----------------------------------------------------
 
         investigated_context = (
             self.build_investigated_context()
         )
 
+
+        # ----------------------------------------------------
+        # Extract only the project information we actually need.
+        #
+        # IMPORTANT:
+        # Do NOT send the entire context object again.
+        # The previous implementation sent:
+        #
+        #     project
+        #     task
+        #     all tasks
+        #     files
+        #     investigated files
+        #     entire context AGAIN
+        #
+        # This created unnecessary input-token usage.
+        # ----------------------------------------------------
+
+        project = context.get(
+            "project",
+            ""
+        )
+
+
+        tasks = context.get(
+            "tasks",
+            ""
+        )
+
+
+        # ----------------------------------------------------
+        # PROMPT
+        # ----------------------------------------------------
 
         prompt = f"""
 You are the CODER AGENT of an autonomous
@@ -455,28 +527,21 @@ You have access to the project workspace.
 PROJECT
 ==================================================
 
-{context.get("project", "")}
+{project}
 
 
 ==================================================
 CURRENT TASK
 ==================================================
 
-{task}
+{task["description"]}
 
 
 ==================================================
-ALL TASKS
+PROJECT FILES
 ==================================================
 
-{context.get("tasks", "")}
-
-
-==================================================
-CURRENT PROJECT FILES
-==================================================
-
-{files}
+{file_list}
 
 
 ==================================================
@@ -489,15 +554,14 @@ Their COMPLETE CONTENTS are included below.
 
 DO NOT issue read_file again for these files.
 
-==================================================
 {investigated_context}
 
 
 ==================================================
-PROJECT CONTEXT
+TASK STATUS
 ==================================================
 
-{context}
+{tasks}
 
 
 ==================================================
@@ -514,64 +578,57 @@ list_files
 IMPORTANT RULES
 ==================================================
 
-1. You are implementing the current task.
+1. Implement the current task completely.
 
 2. Inspect existing files when necessary.
 
-3. If a file already exists, read it before
-   modifying it.
+3. If a file is already present in the
+   FILES ALREADY READ section, do NOT request
+   read_file for that file again.
 
-4. If a file is already present in the
-   "FILES ALREADY READ" section, DO NOT
-   request read_file again.
+4. If you have enough information already,
+   IMPLEMENT immediately.
 
-5. Use the actual contents of already-read
-   files to determine the required changes.
+5. Do not stop after reading files.
 
-6. Do not repeatedly read the same file.
+6. Reading files is only an investigation step.
 
-7. Do not stop after reading files.
+7. After receiving file contents, use them to
+   produce implementation actions.
 
-8. Reading files is only an investigation step.
+8. Use create_file for a new file.
 
-9. After you have enough information,
-   CREATE or MODIFY the required files.
+9. Use modify_file for an existing file.
 
-10. Implement the current task completely.
-
-11. Create every file required by the task.
-
-12. The generated project must remain runnable.
-
-13. Do not modify unrelated files.
-
-14. Do not merely describe code.
-
-15. Return actual code through actions.
-
-16. If a required file does not exist,
-    use create_file.
-
-17. If a required file already exists,
-    use modify_file.
-
-18. When using modify_file, old_text MUST
+10. When using modify_file, old_text MUST
     exactly match the existing file.
 
-19. Prefer modifying the existing file rather
-    than replacing unrelated content.
+11. Do not overwrite unrelated files.
 
-20. Do not create fake placeholder
-    implementations when the task requires
-    real functionality.
+12. Do not modify unrelated files.
 
-21. Do not create tests merely to make the
+13. Create every file required by the task.
+
+14. Keep the generated project runnable.
+
+15. Do not create fake placeholder implementations.
+
+16. Do not create tests merely to make the
     current task pass unless the current task
     actually requires tests.
 
-22. If you have already inspected all files
-    required for the task, you MUST move to
-    implementation.
+17. If your previous response only contained
+    read_file or list_files actions, this response
+    MUST use the information from those results
+    and produce implementation actions.
+
+18. Do not repeatedly read the same file.
+
+19. If the required information is already
+    available, do not use read_file.
+
+20. Return actual implementation actions,
+    not an explanation.
 
 ==================================================
 CRITICAL MULTI-TURN RULE
@@ -582,14 +639,15 @@ This is an iterative coding system.
 If your previous response contained only:
 
 read_file
-or
+
+or:
+
 list_files
 
-then this response MUST use the information
-from those results and produce implementation
-actions.
+then this response MUST implement the task
+using the information obtained from those actions.
 
-Do NOT request the same files again.
+DO NOT request the same files again.
 
 For example:
 
@@ -606,9 +664,10 @@ TURN 1:
 
 TURN 2:
 
-You receive the contents of app/main.py.
+The contents of app/main.py are now available
+in FILES ALREADY READ.
 
-Now produce:
+Now produce implementation actions such as:
 
 {{
     "actions": [
@@ -713,7 +772,6 @@ Only JSON.
                     "=============================="
                 )
 
-
                 print(
                     error_text
                 )
@@ -741,9 +799,12 @@ Only JSON.
                         "until Gemini is available."
                     )
 
-
                     return None
 
+
+                # ------------------------------------------------
+                # Temporary errors
+                # ------------------------------------------------
 
                 temporary_error = (
                     "503" in error_text
@@ -790,6 +851,10 @@ Only JSON.
                 )
 
 
+        # ====================================================
+        # CHECK RESPONSE
+        # ====================================================
+
         if response is None:
 
             return None
@@ -820,11 +885,14 @@ Only JSON.
             "=============================="
         )
 
-
         print(
             text
         )
 
+
+        # ====================================================
+        # PARSE JSON
+        # ====================================================
 
         plan = (
             self.extract_json(
@@ -1276,7 +1344,6 @@ Only JSON.
                 "ONE OR MORE CODER ACTIONS FAILED"
             )
 
-
             return False
 
 
@@ -1285,7 +1352,6 @@ Only JSON.
             print(
                 "✅ ALL CODE ACTIONS COMPLETED"
             )
-
 
             return True
 
@@ -1296,14 +1362,12 @@ Only JSON.
                 "ℹ️ Coder only inspected files."
             )
 
-
             return False
 
 
         print(
             "❌ NO CODE CHANGES WERE MADE"
         )
-
 
         return False
 
