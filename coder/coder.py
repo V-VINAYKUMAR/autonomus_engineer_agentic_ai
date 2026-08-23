@@ -873,7 +873,6 @@ Only JSON.
             # output may contain that word.
 
             error_indicators = [
-                "",
                 "failed to",
                 "failure:",
                 "error:",
