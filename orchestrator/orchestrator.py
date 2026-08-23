@@ -5,6 +5,7 @@ from state.project_state import (
 )
 
 from planner.planner import Planner
+from docker.docker_manager import DockerManager
 
 
 class Orchestrator:
@@ -14,6 +15,8 @@ class Orchestrator:
         self.state = load_state()
 
         self.planner = Planner()
+
+        self.docker_manager = DockerManager()
 
 
     # ==========================================
