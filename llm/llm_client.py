@@ -1,6 +1,7 @@
 import os
 
 from dotenv import load_dotenv
+from google import genai
 from groq import Groq
 
 
@@ -11,19 +12,56 @@ class LLMClient:
 
     def __init__(self):
 
-        api_key = os.getenv("GROQ_API_KEY")
+        # ==========================================
+        # Gemini
+        # ==========================================
 
-        if not api_key:
-            raise ValueError(
-                "GROQ_API_KEY not found in .env"
-            )
-
-        self.client = Groq(
-            api_key=api_key
+        self.gemini_key = os.getenv(
+            "GEMINI_API_KEY"
         )
 
-        self.model = "openai/gpt-oss-20b"
+        self.gemini_client = None
 
+        if self.gemini_key:
+
+            self.gemini_client = genai.Client(
+                api_key=self.gemini_key
+            )
+
+
+        # ==========================================
+        # Groq
+        # ==========================================
+
+        self.groq_key = os.getenv(
+            "GROQ_API_KEY"
+        )
+
+        self.groq_client = None
+
+        if self.groq_key:
+
+            self.groq_client = Groq(
+                api_key=self.groq_key
+            )
+
+
+        # ==========================================
+        # Models
+        # ==========================================
+
+        self.gemini_model = (
+            "gemini-2.5-flash"
+        )
+
+        self.groq_model = (
+            "openai/gpt-oss-20b"
+        )
+
+
+    # ==========================================
+    # Generate response
+    # ==========================================
 
     def generate(
         self,
@@ -31,26 +69,122 @@ class LLMClient:
         json_mode=False
     ):
 
-        kwargs = {
-            "model": self.model,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": prompt
+        # ======================================
+        # Try Gemini first
+        # ======================================
+
+        if self.gemini_client:
+
+            try:
+
+                print(
+                    "\nLLM Provider: Gemini"
+                )
+
+                response = (
+                    self.gemini_client
+                    .models
+                    .generate_content(
+                        model=self.gemini_model,
+                        contents=prompt
+                    )
+                )
+
+                text = response.text
+
+                if text:
+
+                    return text.strip()
+
+
+            except Exception as e:
+
+                error_text = str(e)
+
+                print(
+                    "\n⚠️ Gemini failed:"
+                )
+
+                print(
+                    error_text
+                )
+
+                print(
+                    "\nTrying Groq fallback..."
+                )
+
+
+        # ======================================
+        # Try Groq
+        # ======================================
+
+        if self.groq_client:
+
+            try:
+
+                print(
+                    "\nLLM Provider: Groq"
+                )
+
+                kwargs = {
+                    "model": self.groq_model,
+
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ]
                 }
-            ],
-        }
 
-        if json_mode:
 
-            kwargs["response_format"] = {
-                "type": "json_object"
-            }
+                if json_mode:
 
-        response = (
-            self.client.chat.completions.create(
-                **kwargs
-            )
+                    kwargs[
+                        "response_format"
+                    ] = {
+                        "type": "json_object"
+                    }
+
+
+                response = (
+                    self.groq_client
+                    .chat
+                    .completions
+                    .create(
+                        **kwargs
+                    )
+                )
+
+
+                text = (
+                    response
+                    .choices[0]
+                    .message
+                    .content
+                )
+
+
+                if text:
+
+                    return text.strip()
+
+
+            except Exception as e:
+
+                print(
+                    "\n❌ Groq failed:"
+                )
+
+                print(
+                    str(e)
+                )
+
+
+        # ======================================
+        # Both failed
+        # ======================================
+
+        raise RuntimeError(
+            "All configured LLM providers failed."
         )
-
-        return response.choices[0].message.content

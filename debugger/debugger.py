@@ -4,7 +4,7 @@ import time
 import re
 
 from dotenv import load_dotenv
-from google import genai
+from llm.llm_client import LLMClient
 
 from state.project_state import (
     load_state,
@@ -27,25 +27,6 @@ from tools.file_tools import (
 
 load_dotenv()
 
-api_key = os.getenv(
-    "GEMINI_API_KEY"
-)
-
-
-if not api_key:
-
-    raise ValueError(
-        "GEMINI_API_KEY not found in .env"
-    )
-
-
-# ==========================================
-# Create Gemini client
-# ==========================================
-
-client = genai.Client(
-    api_key=api_key
-)
 
 
 # ==========================================
@@ -61,6 +42,10 @@ class Debugger:
         self.context_builder = (
             ContextBuilder()
         )
+
+        # Centralized LLM client.
+        # Gemini is used first and Groq is the fallback.
+        self.llm = LLMClient()
 
 
     # ==========================================
@@ -411,15 +396,9 @@ No explanation outside JSON.
                 )
 
 
-                response = (
-                    client.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=prompt,
-                        config={
-                            "response_mime_type":
-                                "application/json"
-                        }
-                    )
+                response_text = self.llm.generate(
+                    prompt,
+                    json_mode=True
                 )
 
 
@@ -471,29 +450,9 @@ No explanation outside JSON.
                     raise
 
 
-                # ----------------------------------
-                # Quota exhausted
-                # ----------------------------------
-
-                if (
-                    "RESOURCE_EXHAUSTED"
-                    in error_text
-                    or
-                    "quota" in error_text.lower()
-                ):
-
-                    print(
-                        "\n⚠️ Gemini quota appears "
-                        "to be exhausted."
-                    )
-
-                    print(
-                        "The debugger cannot continue "
-                        "until Gemini quota is available."
-                    )
-
-
-                    return None
+                # Gemini quota errors are handled by
+                # LLMClient, which automatically falls
+                # back to Groq.
 
 
                 if attempt == max_retries:
@@ -544,28 +503,28 @@ No explanation outside JSON.
         # No response
         # ======================================
 
-        if response is None:
+        if response_text is None:
 
             return None
 
 
         # ======================================
-        # Get Gemini response
+        # Get LLM response
         # ======================================
 
-        if not response.text:
+        if not response_text:
 
             raise ValueError(
-                "Gemini debugger returned "
+                "LLM debugger returned "
                 "an empty response."
             )
 
 
-        text = response.text.strip()
+        text = response_text.strip()
 
 
         print("\n==============================")
-        print("GEMINI DEBUGGER RESPONSE")
+        print("LLM DEBUGGER RESPONSE")
         print("==============================")
 
 
@@ -1090,7 +1049,7 @@ No explanation outside JSON.
 
 
         # ======================================
-        # Ask Gemini
+        # Ask LLM
         # ======================================
 
         try:
@@ -1104,7 +1063,7 @@ No explanation outside JSON.
 
             print("\n")
             print(
-                "❌ DEBUGGER GEMINI ERROR"
+                "❌ DEBUGGER LLM ERROR"
             )
 
             print(

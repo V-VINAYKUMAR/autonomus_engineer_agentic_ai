@@ -4,7 +4,8 @@ import time
 import re
 
 from dotenv import load_dotenv
-from google import genai
+
+from llm.llm_client import LLMClient
 
 from state.project_state import load_state
 
@@ -24,18 +25,6 @@ from tools.file_tools import (
 
 load_dotenv()
 
-api_key = os.getenv("GEMINI_API_KEY")
-
-if not api_key:
-    raise ValueError(
-        "GEMINI_API_KEY not found in .env"
-    )
-
-
-client = genai.Client(
-    api_key=api_key
-)
-
 
 # ============================================================
 # CODER
@@ -50,6 +39,15 @@ class Coder:
         self.context_builder = (
             ContextBuilder()
         )
+
+        # Centralized LLM client.
+        #
+        # LLMClient handles:
+        #
+        # Gemini → primary
+        # Groq   → fallback
+        #
+        self.llm = LLMClient()
 
         # Files read during the current task.
         #
@@ -248,7 +246,7 @@ class Coder:
 
 
         raise ValueError(
-            "Gemini returned invalid JSON:\n"
+            "LLM returned invalid JSON:\n"
             + text
         )
 
@@ -268,14 +266,14 @@ class Coder:
         ):
 
             raise ValueError(
-                "Gemini plan must be a JSON object."
+                "LLM plan must be a JSON object."
             )
 
 
         if "actions" not in plan:
 
             raise ValueError(
-                "Gemini plan does not contain actions."
+                "LLM plan does not contain actions."
             )
 
 
@@ -285,7 +283,7 @@ class Coder:
         ):
 
             raise ValueError(
-                "Gemini actions must be a list."
+                "LLM actions must be a list."
             )
 
 
@@ -428,7 +426,7 @@ FILE: {filename}
 
 
     # ========================================================
-    # ASK GEMINI
+    # ASK LLM
     # ========================================================
 
     def ask_gemini(self):
@@ -487,16 +485,7 @@ FILE: {filename}
         #
         # IMPORTANT:
         # Do NOT send the entire context object again.
-        # The previous implementation sent:
         #
-        #     project
-        #     task
-        #     all tasks
-        #     files
-        #     investigated files
-        #     entire context AGAIN
-        #
-        # This created unnecessary input-token usage.
         # ----------------------------------------------------
 
         project = context.get(
@@ -713,17 +702,17 @@ Only JSON.
 
 
         print(
-            "\nSending task to Gemini..."
+            "\nSending task to LLM..."
         )
 
 
         # ====================================================
-        # GEMINI REQUEST
+        # LLM REQUEST
         # ====================================================
 
         max_retries = 3
 
-        response = None
+        response_text = None
 
 
         for attempt in range(
@@ -734,19 +723,15 @@ Only JSON.
             try:
 
                 print(
-                    f"\nGemini attempt "
+                    f"\nLLM attempt "
                     f"{attempt}/{max_retries}..."
                 )
 
 
-                response = (
-                    client.models.generate_content(
-                        model="gemini-2.5-flash",
-                        contents=prompt,
-                        config={
-                            "response_mime_type":
-                                "application/json"
-                        }
+                response_text = (
+                    self.llm.generate(
+                        prompt,
+                        json_mode=True
                     )
                 )
 
@@ -765,7 +750,7 @@ Only JSON.
                 )
 
                 print(
-                    "GEMINI ERROR"
+                    "LLM ERROR"
                 )
 
                 print(
@@ -775,31 +760,6 @@ Only JSON.
                 print(
                     error_text
                 )
-
-
-                # ------------------------------------------------
-                # QUOTA
-                # ------------------------------------------------
-
-                if (
-                    "429" in error_text
-                    or
-                    "RESOURCE_EXHAUSTED"
-                    in error_text
-                    or
-                    "quota" in error_text.lower()
-                ):
-
-                    print(
-                        "\n⚠️ GEMINI QUOTA EXHAUSTED."
-                    )
-
-                    print(
-                        "Coder cannot continue "
-                        "until Gemini is available."
-                    )
-
-                    return None
 
 
                 # ------------------------------------------------
@@ -828,7 +788,7 @@ Only JSON.
                 if attempt == max_retries:
 
                     print(
-                        "\n❌ Gemini failed after "
+                        "\n❌ LLM failed after "
                         f"{max_retries} attempts."
                     )
 
@@ -855,20 +815,20 @@ Only JSON.
         # CHECK RESPONSE
         # ====================================================
 
-        if response is None:
+        if response_text is None:
 
             return None
 
 
-        if not response.text:
+        if not response_text:
 
             raise ValueError(
-                "Gemini returned an empty response."
+                "LLM returned an empty response."
             )
 
 
         text = (
-            response.text.strip()
+            response_text.strip()
         )
 
 
@@ -878,7 +838,7 @@ Only JSON.
         )
 
         print(
-            "GEMINI CODER RESPONSE"
+            "LLM CODER RESPONSE"
         )
 
         print(
@@ -981,7 +941,7 @@ Only JSON.
         if not actions:
 
             print(
-                "\nCoder: Gemini returned no actions."
+                "\nCoder: LLM returned no actions."
             )
 
             return False
@@ -1000,7 +960,7 @@ Only JSON.
         )
 
         print(
-            "EXECUTING GEMINI ACTIONS"
+            "EXECUTING LLM ACTIONS"
         )
 
         print(
@@ -1424,7 +1384,7 @@ Only JSON.
 
 
         # ----------------------------------------------------
-        # Maximum Gemini turns
+        # Maximum LLM turns
         # ----------------------------------------------------
 
         max_coder_turns = 4
@@ -1442,7 +1402,7 @@ Only JSON.
 
 
             # =================================================
-            # ASK GEMINI
+            # ASK LLM
             # =================================================
 
             try:
@@ -1585,7 +1545,7 @@ Only JSON.
 
                     print(
                         "Read contents have been saved "
-                        "and will be supplied to Gemini "
+                        "and will be supplied to LLM "
                         "on the next turn."
                     )
 
@@ -1595,7 +1555,7 @@ Only JSON.
 
             # =================================================
             # If there were reads AND modifications failed,
-            # give Gemini another opportunity to fix them.
+            # give LLM another opportunity to fix them.
             # =================================================
 
             if (
@@ -1605,7 +1565,7 @@ Only JSON.
             ):
 
                 print(
-                    "\nCoder will give Gemini "
+                    "\nCoder will give LLM "
                     "another implementation turn."
                 )
 

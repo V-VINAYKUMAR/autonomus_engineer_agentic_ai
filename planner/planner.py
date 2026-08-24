@@ -1,15 +1,14 @@
-import os
 import json
 
 from dotenv import load_dotenv
-from google import genai
+
+from llm.llm_client import LLMClient
 
 from state.project_state import (
     load_state,
     add_task,
     update_project,
     reset_tasks
-
 )
 
 
@@ -19,28 +18,24 @@ from state.project_state import (
 
 load_dotenv()
 
-api_key = os.getenv("GEMINI_API_KEY")
-
-if not api_key:
-    raise ValueError(
-        "GEMINI_API_KEY not found in .env"
-    )
-
 
 # ==========================================
-# Gemini client
+# Planner
 # ==========================================
-
-client = genai.Client(
-    api_key=api_key
-)
-
 
 class Planner:
 
     def __init__(self):
 
         self.state = load_state()
+
+        # Central LLM client.
+        #
+        # LLMClient handles:
+        # Gemini → primary
+        # Groq   → fallback
+        #
+        self.llm = LLMClient()
 
 
     # ==========================================
@@ -95,18 +90,30 @@ Required format:
 }}
 """
 
+
         print("\n==============================")
         print("AI PLANNER")
         print("==============================")
 
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
-        )
 
-        response_text = response.text.strip()
+        # ======================================
+        # LLM REQUEST
+        # ======================================
+        #
+        # LLMClient decides whether to use
+        # Gemini or Groq.
+        #
+        # If Gemini fails because of quota,
+        # Groq is automatically attempted.
+        #
 
-        print("\nGemini response:")
+        response_text = self.llm.generate(
+            prompt,
+            json_mode=True
+        ).strip()
+
+
+        print("\nLLM response:")
         print(response_text)
 
 
@@ -122,7 +129,7 @@ Required format:
 
         except json.JSONDecodeError:
 
-            # Gemini sometimes wraps JSON
+            # Model may wrap JSON
             # inside markdown code blocks.
 
             cleaned = (
@@ -144,7 +151,7 @@ Required format:
         if "tasks" not in plan:
 
             raise ValueError(
-                "Gemini response does not "
+                "LLM response does not "
                 "contain 'tasks'."
             )
 
@@ -167,6 +174,7 @@ Required format:
             project_name,
             goal
         )
+
         reset_tasks()
 
 
@@ -199,17 +207,21 @@ Required format:
         print("PROJECT PLAN")
         print("==============================")
 
+
         print(
             "Project:",
             self.state["project"]["name"]
         )
+
 
         print(
             "Goal:",
             self.state["project"]["goal"]
         )
 
+
         print("\nTasks:")
+
 
         for task in self.state["tasks"]:
 
@@ -233,5 +245,6 @@ Required format:
             if task["status"] == "pending":
 
                 return task
+
 
         return None
